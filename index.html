@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Bicycle Simulation - Hardcore Final Fix (Version 27)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body { margin:0; overflow:hidden; font-family: sans-serif; background:#a0d8ef; user-select: none; -webkit-user-select: none; }
+        #ui { position:absolute; top:20px; left:20px; background:rgba(255,255,255,0.8); padding:15px; border-radius:10px; z-index:100; border: 1px solid #999; }
+        #msg { position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); width:80%; text-align:center; font-size:40px; font-weight:bold; pointer-events:none; z-index:1000; display:none; }
+        .game-over { color: #ff0000; text-shadow: 2px 2px 10px #000; display: block !important; }
+        .clear { color: #f1c40f; text-shadow: 2px 2px 10px #000; display: block !important; }
+        #overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.4); display:none; z-index:500; }
+        #timer-display { font-size: 24px; font-weight: bold; color: #e74c3c; }
+        #coin-display { font-size: 18px; font-weight: bold; color: #d4af37; margin-top: 5px; }
+        
+        /* スマホ・タブレット用UI */
+        #mobile-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            height: 160px;
+            z-index: 600;
+            display: none;
+            pointer-events: none;
+        }
+        .btn {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.7);
+            border: 2px solid #555;
+            border-radius: 10px;
+            text-align: center;
+            font-weight: bold;
+            user-select: none;
+            -webkit-user-select: none;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn:active {
+            background: rgba(200, 200, 200, 0.9);
+        }
+        #btn-w { left: 80px; bottom: 90px; width: 50px; height: 50px; font-size: 20px; }
+        #btn-s { left: 80px; bottom: 20px; width: 50px; height: 50px; font-size: 20px; }
+        #btn-a { left: 20px; bottom: 20px; width: 50px; height: 50px; font-size: 20px; }
+        #btn-d { left: 140px; bottom: 20px; width: 50px; height: 50px; font-size: 20px; }
+        
+        /* リトライ用タッチボタン */
+        #retry-overlay-btn {
+            position: absolute;
+            top: 70%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 15px 30px;
+            background: #e67e22;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 10px;
+            border: none;
+            display: none;
+            z-index: 1001;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+<div id="overlay"></div>
+<div id="ui">
+    <div id="timer-display">⏱️ TIME: 0.00s</div>
+    <div id="coin-display">🪙 BONUS: 0</div>
+    <div style="font-size: 12px; color: #2980b9; font-weight: bold; margin-top: 5px;">【ミッション】青いルート沿いに急いで学校へ！</div>
+    <div style="font-size: 11px; color: #333;">[Q]/[E]で覗き込み確認 <span id="pc-retry-hint">(Rキーで即リトライ)</span></div>
+</div>
+<div id="msg"></div>
+<button id="retry-overlay-btn">もう一度挑戦する (R)</button>
+
+<div id="mobile-controls">
+    <div class="btn" id="btn-w">前進</div>
+    <div class="btn" id="btn-s">ブレーキ</div>
+    <div class="btn" id="btn-a">左</div>
+    <div class="btn" id="btn-d">右</div>
+    <div class="btn" id="btn-q">左見</div>
+    <div class="btn" id="btn-e">右見</div>
+</div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js';
+
+let isGameOver = false;
+let coins = 0;
+let startTime = Date.now();
+let elapsedTime = 0;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xa0d8ef);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// 照明
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(50, 50, 20);
+sun.castShadow = true;
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+
+// --- 草地の地面を追加 ---
+const grassGeo = new THREE.PlaneGeometry(1000, 1000);
+const grassMat = new THREE.MeshLambertMaterial({ color: 0x7cfc00 });
+const grass = new THREE.Mesh(grassGeo, grassMat);
+grass.rotation.x = -Math.PI / 2;
+grass.receiveShadow = true;
+scene.add(grass);
+
+// --- マップ構築 ---
+const createRoad = (x, z, w, d) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshLambertMaterial({ color: 0x333333 }));
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.01, z);
+    scene.add(mesh);
+};
+createRoad(0, 60, 10, 120);    
+createRoad(40, 0, 90, 10);    
+createRoad(85, -60, 10, 130);  
+createRoad(-100, 0, 240, 10);      
+createRoad(85, 0, 40, 10);     
+// 【改良】2つ目の交差点を横切る道路を大幅に延長（東西に長く）
+createRoad(40, -60, 300, 10);  
+
+// 青いナビゲーションルート
+const createNavLine = (x, z, w, d) => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color: 0x3498db }));
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.02, z);
+    scene.add(mesh);
+};
+createNavLine(0, 60, 1, 120);
+createNavLine(42.5, 0, 86, 1);
+createNavLine(85, -60, 1, 120);
+
+// トンネル
+function createTunnel(x, z) {
+    const tunnel = new THREE.Mesh(new THREE.BoxGeometry(12, 8, 12), new THREE.MeshLambertMaterial({color: 0x222222}));
+    tunnel.position.set(x, 4, z);
+    scene.add(tunnel);
+}
+createTunnel(-220, 0); createTunnel(120, 0);
+// 【改良】道路の延長に合わせて、2つ目の交差点のトンネル位置をさらに外側へ移動
+createTunnel(-110, -60); createTunnel(190, -60);
+
+// 建物（塀）
+const wallMat = new THREE.MeshLambertMaterial({ color: 0xeeeeee });
+const walls = [
+    {x:-10, z:11, w:10, d:10}, {x:10, z:11, w:10, d:10},     
+    // 【改良】左に寄っても車が見えないよう、2つ目の交差点手前の塀（x:75側）を左方向へ拡張(w:14)し、位置を調整
+    {x:73, z:-49, w:14, d:12}, {x:95, z:-49, w:10, d:12}
+];
+walls.forEach(w => {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(w.w, 7, w.d), wallMat);
+    wall.position.set(w.x, 3.5, w.z);
+    scene.add(wall);
+});
+
+// ゴール地点の立体的な("学校（校舎・校門）")オブジェクト群
+const schoolGroup = new THREE.Group();
+
+const schoolBody = new THREE.Mesh(new THREE.BoxGeometry(50, 18, 15), new THREE.MeshLambertMaterial({ color: 0xdfd3c3 }));
+schoolBody.position.set(85, 9, -145);
+schoolBody.castShadow = true;
+schoolBody.receiveShadow = true;
+schoolGroup.add(schoolBody);
+
+const schoolRoof = new THREE.Mesh(new THREE.BoxGeometry(52, 1, 17), new THREE.MeshLambertMaterial({ color: 0x555555 }));
+schoolRoof.position.set(85, 18.5, -145);
+schoolGroup.add(schoolRoof);
+
+const clockMesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 0.5, 24), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+clockMesh.rotation.x = Math.PI / 2;
+clockMesh.position.set(85, 14, -137.3);
+schoolGroup.add(clockMesh);
+
+const gateMat = new THREE.MeshLambertMaterial({ color: 0x777777 });
+const gateL = new THREE.Mesh(new THREE.BoxGeometry(2, 5, 2), gateMat);
+gateL.position.set(80, 2.5, -122);
+const gateR = new THREE.Mesh(new THREE.BoxGeometry(2, 5, 2), gateMat);
+gateR.position.set(90, 2.5, -122);
+schoolGroup.add(gateL, gateR);
+
+scene.add(schoolGroup);
+
+// 景観用の家（ローポリ建物）with 窓・ドア
+function createHouse(x, z, color) {
+    const group = new THREE.Group();
+    // 壁
+    const body = new THREE.Mesh(new THREE.BoxGeometry(8, 6, 8), new THREE.MeshLambertMaterial({color: color}));
+    body.position.y = 3;
+    body.castShadow = true;
+    // 屋根
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(7, 4, 4), new THREE.MeshLambertMaterial({color: 0x8b4513}));
+    roof.position.y = 8; roof.rotation.y = Math.PI/4;
+    // 窓（水色）
+    const winMat = new THREE.MeshLambertMaterial({color: 0xadd8e6, emissive: 0x224455});
+    const winGeo = new THREE.PlaneGeometry(1.3, 1.3);
+    const winL = new THREE.Mesh(winGeo, winMat);
+    winL.position.set(-2, 3.8, 4.01);
+    const winR = new THREE.Mesh(winGeo, winMat);
+    winR.position.set(2, 3.8, 4.01);
+    // 窓枠（白）
+    const frameMat = new THREE.MeshLambertMaterial({color: 0xffffff});
+    const frameGeo = new THREE.PlaneGeometry(1.6, 1.6);
+    const frameL = new THREE.Mesh(frameGeo, frameMat);
+    frameL.position.set(-2, 3.8, 4.005);
+    const frameR = new THREE.Mesh(frameGeo, frameMat);
+    frameR.position.set(2, 3.8, 4.005);
+    // ドア（茶）
+    const doorMat = new THREE.MeshLambertMaterial({color: 0x6b3a1f});
+    const door = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.2), doorMat);
+    // 【修正】Zファイティング（点滅）を防ぐため、ドアを壁面(4.0)から少し手前(4.03)へ引き出しました
+    door.position.set(0, 1.6, 4.03);
+    // ドア枠（白）
+    const doorFrame = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2.5), frameMat);
+    doorFrame.position.set(0, 1.6, 4.015);
+    group.add(body, roof, frameL, frameR, winL, winR, doorFrame, door);
+    group.position.set(x, 0, z);
+    scene.add(group);
+}
+createHouse(-20, 30, 0xf39c12);
+createHouse(20, 30, 0x1abc9c);
+createHouse(-30, 80, 0xe74c3c);
+createHouse(30, 80, 0x9b59b6);
+createHouse(50, -30, 0xf1c40f);
+createHouse(110, -30, 0x34495e);
+createHouse(60, -90, 0x1abc9c);
+createHouse(110, -90, 0xe67e22);
+
+// ===== 電柱 =====
+function createUtilityPole(x, z, rotY = 0) {
+    const group = new THREE.Group();
+    const poleMat = new THREE.MeshLambertMaterial({color: 0x7a5c2e});
+    // メインポール（木製・茶色）
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 11, 8), poleMat);
+    pole.position.y = 5.5;
+    group.add(pole);
+    // 横腕（上）
+    const arm1 = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.18, 0.18), poleMat);
+    arm1.position.set(0, 10.2, 0);
+    group.add(arm1);
+    // 横腕（中）
+    const arm2 = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.14, 0.14), poleMat);
+    arm2.position.set(0, 8.5, 0);
+    group.add(arm2);
+    // 碍子（がいし）- 白い絶縁体の小球
+    const insGeo = new THREE.SphereGeometry(0.12, 6, 6);
+    const insMat = new THREE.MeshLambertMaterial({color: 0xeeeeee});
+    [[-1.6, 10.2], [0, 10.2], [1.6, 10.2], [-1.1, 8.5], [1.1, 8.5]].forEach(([ix, iy]) => {
+        const ins = new THREE.Mesh(insGeo, insMat);
+        ins.position.set(ix, iy, 0.1);
+        group.add(ins);
+    });
+    group.position.set(x, 0, z);
+    group.rotation.y = rotY;
+    scene.add(group);
+    return group;
+}
+
+// 電線を2つの電柱間に張る関数
+function createWire(x1, y1, z1, x2, y2, z2) {
+    const points = [];
+    const segments = 10;
+    for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        const sag = Math.sin(t * Math.PI) * 0.4; // 電線のたわみ
+        points.push(new THREE.Vector3(
+            x1 + (x2 - x1) * t,
+            y1 + (y2 - y1) * t - sag,
+            z1 + (z2 - z1) * t
+        ));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({color: 0x333333}));
+    scene.add(line);
+}
+
+// 道路沿いに電柱を配置
+// 縦の道（x≈-5 側, z方向）
+const polePositionsV = [120, 95, 70, 45, 20, -5]; // z座標
+polePositionsV.forEach(z => createUtilityPole(-6, z));
+// 電線を縦道沿いに張る（上の腕, y≈10.2）
+for (let i = 0; i < polePositionsV.length - 1; i++) {
+    createWire(-6, 10.2, polePositionsV[i], -6, 10.2, polePositionsV[i+1]);
+    createWire(-6, 8.5, polePositionsV[i], -6, 8.5, polePositionsV[i+1]);
+}
+
+// 横の道（z≈-5 側, x方向）
+const polePositionsH = [10, 28, 46, 64]; // x座標
+polePositionsH.forEach(x => createUtilityPole(x, -6, Math.PI / 2));
+for (let i = 0; i < polePositionsH.length - 1; i++) {
+    createWire(polePositionsH[i], 10.2, -6, polePositionsH[i+1], 10.2, -6);
+    createWire(polePositionsH[i], 8.5, -6, polePositionsH[i+1], 8.5, -6);
+}
+
+// 2本目の縦の道（x≈91 側）
+const polePositionsV2 = [-5, -25, -45, -70, -95, -115];
+polePositionsV2.forEach(z => createUtilityPole(91, z));
+for (let i = 0; i < polePositionsV2.length - 1; i++) {
+    createWire(91, 10.2, polePositionsV2[i], 91, 10.2, polePositionsV2[i+1]);
+    createWire(91, 8.5, polePositionsV2[i], 91, 8.5, polePositionsV2[i+1]);
+}
+
+// 一時停止標識と白線
+function createStopSignTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 256, 256);
+    // 逆三角形（白縁）
+    ctx.beginPath();
+    ctx.moveTo(128, 248); ctx.lineTo(8, 14); ctx.lineTo(248, 14);
+    ctx.closePath();
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 18; ctx.stroke();
+    ctx.fillStyle = '#cc0000'; ctx.fill();
+    // 文字サイズを逆三角形の横幅に合わせ、描画Y座標を「118」から「92」へと上に引き上げて完全に収めました
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 54px sans-serif'; 
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('止まれ', 128, 92);
+    return new THREE.CanvasTexture(canvas);
+}
+const stopSignTexture = createStopSignTexture();
+
+function createStopSign(x, z) {
+    const group = new THREE.Group();
+    // ポール（金属色）
+    const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.10, 5.5, 8),
+        new THREE.MeshLambertMaterial({color: 0xaaaaaa})
+    );
+    pole.position.y = 2.75;
+    group.add(pole);
+    // 標識本体（両面表示の平面 + canvasテクスチャ）
+    const signMat = new THREE.MeshBasicMaterial({
+        map: stopSignTexture, transparent: true, side: THREE.DoubleSide
+    });
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), signMat);
+    // 食い込みを直すため、少し前に出す（z方向へオフセット）
+    sign.position.set(0, 5.6, 0.1);
+    group.add(sign);
+    group.position.set(x, 0, z);
+    scene.add(group);
+}
+// 位置を微調整して配置（修正なし、createStopSign内で対応）
+createStopSign(4.5, 16.5);          
+createStopSign(88.5, -45);         
+
+const createStopLine = (x, z, w, d) => {
+    const line = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshLambertMaterial({ color: 0xffffff }));
+    line.rotation.x = -Math.PI/2;
+    line.position.set(x, 0.05, z);
+    scene.add(line);
+};
+createStopLine(0, 13, 8, 1.2);    
+createStopLine(85, -47, 8, 1.2);  
+
+// ハンドルの作成
+const handleGroup = new THREE.Group();
+const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 12), new THREE.MeshLambertMaterial({color: 0xeeeeee}));
+handleBar.rotation.z = Math.PI/2;
+handleGroup.add(handleBar);
+
+const gripL = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.25, 12), new THREE.MeshLambertMaterial({color: 0x111111}));
+gripL.position.set(-0.55, 0, 0.05); gripL.rotation.x = Math.PI/2;
+handleGroup.add(gripL);
+
+const gripR = gripL.clone(); gripR.position.set(0.55, 0, 0.05);
+handleGroup.add(gripR);
+
+handleGroup.position.set(0, -0.4, -0.6);
+camera.add(handleGroup);
+scene.add(camera);
+
+let player = { x: 0, z: 120, angle: 0, speed: 0, lineState: [0, 0] }; 
+let lookAngle = 0, leanZ = 0, leanX = 0;
+
+const keys = {};
+window.onkeydown = (e) => {
+    const key = e.key.toLowerCase();
+    keys[key] = true;
+    if (isGameOver && key === 'r') {
+        resetGame();
+    }
+};
+window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
+
+// スマホ・タブレット用のタッチ判定と仮想ボタン設定
+function detectTouchDevice() {
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+        document.getElementById('mobile-controls').style.display = 'block';
+        document.getElementById('pc-retry-hint').innerText = '(画面ボタンでリトライ)';
+    }
+}
+detectTouchDevice();
+
+const setupMobileButton = (id, keyChar) => {
+    const btn = document.getElementById(id);
+    const startHandler = (e) => { e.preventDefault(); keys[keyChar] = true; };
+    const endHandler = (e) => { e.preventDefault(); keys[keyChar] = false; };
+    btn.addEventListener('pointerdown', startHandler);
+    btn.addEventListener('pointerup', endHandler);
+    btn.addEventListener('pointerleave', endHandler);
+};
+setupMobileButton('btn-w', 'w');
+setupMobileButton('btn-s', 's');
+setupMobileButton('btn-a', 'a');
+setupMobileButton('btn-d', 'd');
+setupMobileButton('btn-q', 'q');
+setupMobileButton('btn-e', 'e');
+
+document.getElementById('retry-overlay-btn').addEventListener('click', () => {
+    if (isGameOver) resetGame();
+});
+
+// 車の作成（マテリアルを後から操作できるよう透過対応を設定）
+function createRealisticCar(colorHex) {
+    const carGroup = new THREE.Group();
+    
+    // 透明度制御用にメッシュ毎に透過設定を有効化
+    const bodyMat = new THREE.MeshLambertMaterial({color: colorHex, transparent: true, opacity: 1.0});
+    const body = new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 8), bodyMat);
+    body.position.y = 0.8;
+    carGroup.add(body);
+
+    const roofMat = new THREE.MeshLambertMaterial({color: 0xffffff, transparent: true, opacity: 1.0});
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(3.5, 1, 4), roofMat);
+    roof.position.y = 1.9;
+    roof.position.z = -0.5;
+    carGroup.add(roof);
+
+    const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.5, 12);
+    const wheelMat = new THREE.MeshLambertMaterial({color: 0x333333, transparent: true, opacity: 1.0});
+    const wheelPositions = [[2,0.4,2.5], [-2,0.4,2.5], [2,0.4,-2.5], [-2,0.4,-2.5]];
+    wheelPositions.forEach(p => {
+        const w = new THREE.Mesh(wheelGeo, wheelMat);
+        w.rotation.z = Math.PI/2;
+        w.position.set(p[0], p[1], p[2]);
+        carGroup.add(w);
+    });
+
+    const lightMat = new THREE.MeshLambertMaterial({color: 0xffffaa, transparent: true, opacity: 1.0});
+    const light = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.3, 0.2), lightMat);
+    light.position.set(0, 0.8, 4);
+    carGroup.add(light);
+
+    return carGroup;
+}
+
+const car1 = createRealisticCar(0xcc0000); 
+const car2 = createRealisticCar(0x0000cc); 
+scene.add(car1, car2);
+
+let carX1 = -220; 
+let carX2 = 98; 
+let car2Triggered = false; 
+let hasCheckedRight = false; 
+// 【追加フラグ】車2の出現/ワープシステム用
+let car2Warped = false; 
+let car2Visible = false;
+
+// 車の透明度を切り替える便利関数
+function setCarVisibility(carGroup, visible) {
+    carGroup.traverse((child) => {
+        if (child.isMesh) {
+            child.material.opacity = visible ? 1.0 : 0.0;
+        }
+    });
+}
+
+// 初期状態は車2を透明にする
+setCarVisibility(car2, false);
+
+// ゲーム状態リセット処理
+function resetGame() {
+    isGameOver = false;
+    coins = 0;
+    startTime = Date.now();
+    elapsedTime = 0;
+    
+    player.x = 0;
+    player.z = 120;
+    player.angle = 0;
+    player.speed = 0;
+    player.lineState = [0, 0];
+    
+    lookAngle = 0;
+    leanZ = 0;
+    leanX = 0;
+    
+    carX1 = -220; 
+    carX2 = 98; 
+    car2Triggered = false; 
+    hasCheckedRight = false; 
+    car2Warped = false;
+    car2Visible = false;
+    setCarVisibility(car2, false);
+    
+    document.getElementById('overlay').style.display = 'none';
+    
+    const msg = document.getElementById('msg');
+    msg.style.display = 'none';
+    msg.className = ''; 
+    
+    document.getElementById('retry-overlay-btn').style.display = 'none';
+    document.getElementById('coin-display').innerText = `🪙 BONUS: 0`;
+    
+    handleGroup.rotation.z = 0;
+    
+    requestAnimationFrame(update);
+}
+
+function update() {
+    if (isGameOver) return;
+
+    elapsedTime = (Date.now() - startTime) / 1000;
+    document.getElementById('timer-display').innerText = `⏱️ TIME: ${elapsedTime.toFixed(2)}s`;
+
+    // 操作
+    if (keys['w']) player.speed = Math.min(player.speed + 0.005, 0.25); 
+    else if (keys['s']) player.speed = Math.max(player.speed - 0.02, 0); // バックせず強力に減速（0未満にはならない）
+    else player.speed *= 0.96;
+    
+    let targetRot = 0;
+    if (keys['a']) { player.angle += 0.025; targetRot = 0.2; }
+    if (keys['d']) { player.angle -= 0.025; targetRot = -0.2; }
+    handleGroup.rotation.z += (targetRot - handleGroup.rotation.z) * 0.1;
+
+    let nextX = player.x - Math.sin(player.angle) * player.speed;
+    let nextZ = player.z - Math.cos(player.angle) * player.speed;
+
+    let onRoad = false;
+    if (player.z > -5 && Math.abs(nextX) < 4.5) onRoad = true;                    
+    if (nextZ > -5 && nextZ < 5 && nextX >= -5 && nextX <= 90) onRoad = true;     
+    if (nextX > 80 && nextX < 90 && nextZ <= 5 && nextZ >= -130) onRoad = true;   
+    if (onRoad) { player.x = nextX; player.z = nextZ; }
+
+    // 覗き込み計算と交差点前のEキーワープ処理
+    let targetLookAngle = 0, targetLeanX = 0, targetLeanZ = 0;
+    let isHeadingEast = (player.z > -10 && player.z < 10 && player.x > 5);
+
+    if (keys['q']) {
+        targetLookAngle = Math.PI / 2;
+        if (isHeadingEast) targetLeanX = 4.0; else targetLeanZ = -4.0;
+    } else if (keys['e']) {
+        targetLookAngle = -Math.PI / 2;
+        if (isHeadingEast) targetLeanX = 4.0; else targetLeanZ = -4.0;
+        
+        // 2つ目の交差点手前のゾーン
+        if (player.x > 70 && player.x < 95 && player.z > -55 && player.z < -30) {
+            hasCheckedRight = true;
+            
+            // 【新機能】交差点に入る前にEキーを押したら、車をはるか遠くにワープさせて出現させる
+            if (!car2Triggered && !car2Warped) {
+                car2Warped = true;
+                car2Triggered = true;
+                car2Visible = true;
+                setCarVisibility(car2, true);
+                carX2 = 180; // 延長された道路のはるか遠く（東側）から走らせる
+            }
+        }
+    }
+    
+    lookAngle += (targetLookAngle - lookAngle) * 0.2;
+    leanZ += (targetLeanZ - leanZ) * 0.2;
+    leanX += (targetLeanX - leanX) * 0.2;
+
+    camera.position.set(player.x + leanX, 1.8, player.z + leanZ);
+    camera.rotation.y = player.angle + lookAngle;
+
+    // 車1（1つ目の交差点）
+    carX1 += 0.25; 
+    if (carX1 > 120) carX1 = -220; 
+    car1.position.set(carX1, 0, 0); car1.rotation.y = Math.PI/2; 
+    
+    // 車2（2つ目の交差点：ワープ・出現・タイミング制御AI）
+    const nearSecondIntersection = (player.x > 70 && player.x < 95 && player.z > -65 && player.z < -30);
+
+    if (nearSecondIntersection) {
+        // ワープが起きておらず、交差点の危険エリア（Z < -55）に入り込んだ場合
+        if (!car2Warped && player.z < -55) {
+            car2Triggered = true;
+            car2Visible = true;
+            setCarVisibility(car2, true); // 透明解除して突っ込ませる
+        }
+    }
+
+    if (car2Triggered) {
+        // ワープ経由なら少し速めに接近、通常進入なら元の絶妙なタイミング用の速度
+        carX2 -= car2Warped ? 1.5 : 1.0; 
+    } else {
+        if (!car2Warped) {
+            carX2 = 98; // 元の絶妙な突撃待機位置
+        }
+    }
+    car2.position.set(carX2, 0, -60); car2.rotation.y = -Math.PI/2;
+
+    // 一時停止チェック
+    const checkZones = [
+        { active: (player.x < 10), zLine: 13, pPos: player.z, triggerPass: (player.z < 10) },
+        { active: (player.x > 70), zLine: -47, pPos: player.z, triggerPass: (player.z < -50) }
+    ];
+
+    checkZones.forEach((zone, i) => {
+        if (!zone.active) return;
+        const inStopZone = (zone.pPos > zone.zLine - 2 && zone.pPos < zone.zLine + 5);
+        
+        if (inStopZone && Math.abs(player.speed) < 0.005 && player.lineState[i] === 0) {
+            player.lineState[i] = 1; 
+            coins += 200; 
+            document.getElementById('coin-display').innerText = `🪙 BONUS: ${coins}`;
+        }
+        
+        if (zone.triggerPass && player.lineState[i] !== 2) {
+            if (player.lineState[i] === 0) {
+                triggerEnd("GAME OVER<br><span style='font-size:18px;'>一時停止（速度0）をせずに交差点に進入しました！</span>", false);
+            }
+            player.lineState[i] = 2; 
+        }
+    });
+
+    // 衝突判定（車2が透明状態のときは衝突しない）
+    const bikePos = new THREE.Vector3(player.x, 1, player.z);
+    
+    let hitCar1 = bikePos.distanceTo(new THREE.Vector3(car1.position.x, 1, car1.position.z)) < 4.5;
+    let hitCar2 = car2Visible && bikePos.distanceTo(new THREE.Vector3(car2.position.x, 1, car2.position.z)) < 4.5;
+
+    if (hitCar1 || hitCar2) {
+        if (player.x > 70) {
+            if (!hasCheckedRight) {
+                triggerEnd("ACCIDENT<br><span style='font-size:18px;'>形だけ止まっても意味がありません！<br>Eボタンで右側の安全を確認するまで進んではいけません。</span>", false);
+            } else {
+                triggerEnd("ACCIDENT<br><span style='font-size:18px;'>車の直前に飛び出してしまいました！<br>安全を確認した後は車が通り過ぎるのを待ちましょう。</span>", false);
+            }
+        } else {
+            triggerEnd("ACCIDENT<br><span style='font-size:18px;'>交差点の確認を怠りました。</span>", false);
+        }
+    }
+
+    // ゴール判定
+    if (player.z < -115 && player.x > 75) {
+        let finalTime = Math.max(0, elapsedTime - (coins / 100));
+        triggerEnd("🎉 GOAL!<br>学校に到着しました！<br>記録: " + elapsedTime.toFixed(2) + "秒<br><span style='font-size:20px;'>安全ボーナス適用後: " + finalTime.toFixed(2) + "秒</span>", true);
+    }
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(update);
+}
+
+function triggerEnd(text, success) {
+    isGameOver = true;
+    document.getElementById('overlay').style.display = 'block';
+    const msg = document.getElementById('msg');
+    msg.innerHTML = text + "<br><span style='font-size:20px;'>Rキー または ボタンでリトライ</span>";
+    msg.className = success ? "clear" : "game-over";
+    msg.style.display = 'block';
+    document.getElementById('retry-overlay-btn').style.display = 'block';
+}
+
+update();
+</script>
+</body>
+</html>
