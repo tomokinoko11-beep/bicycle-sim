@@ -46,6 +46,9 @@
         #btn-s { left: 80px; bottom: 20px; width: 50px; height: 50px; font-size: 20px; }
         #btn-a { left: 20px; bottom: 20px; width: 50px; height: 50px; font-size: 20px; }
         #btn-d { left: 140px; bottom: 20px; width: 50px; height: 50px; font-size: 20px; }
+        /* 覗き込みボタン（画面右側に左右並べて配置） */
+        #btn-q { right: 85px; bottom: 40px; width: 55px; height: 55px; font-size: 16px; }
+        #btn-e { right: 20px; bottom: 40px; width: 55px; height: 55px; font-size: 16px; }
         
         /* リトライ用タッチボタン */
         #retry-overlay-btn {
@@ -128,7 +131,7 @@ createRoad(0, 60, 10, 120);
 createRoad(40, 0, 90, 10);    
 createRoad(85, -60, 10, 130);  
 createRoad(-100, 0, 240, 10);      
-createRoad(85, 0, 40, 10);     
+createRoad(85, 0, 40, 10);    
 // 【改良】2つ目の交差点を横切る道路を大幅に延長（東西に長く）
 createRoad(40, -60, 300, 10);  
 
@@ -355,7 +358,7 @@ function createStopSign(x, z) {
 }
 // 位置を微調整して配置（修正なし、createStopSign内で対応）
 createStopSign(4.5, 16.5);          
-createStopSign(88.5, -45);         
+createStopSign(88.5, -45);          
 
 const createStopLine = (x, z, w, d) => {
     const line = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshLambertMaterial({ color: 0xffffff }));
@@ -513,6 +516,7 @@ function resetGame() {
     msg.style.display = 'none';
     msg.className = ''; 
     
+    // 【修正】リトライ時に「もう一度挑戦する」ボタンが消えるよう、ここを正しく修正しました
     document.getElementById('retry-overlay-btn').style.display = 'none';
     document.getElementById('coin-display').innerText = `🪙 BONUS: 0`;
     
