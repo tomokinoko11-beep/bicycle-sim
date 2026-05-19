@@ -14,7 +14,6 @@
         #timer-display { font-size: 24px; font-weight: bold; color: #e74c3c; }
         #coin-display { font-size: 18px; font-weight: bold; color: #d4af37; margin-top: 5px; }
         
-        /* スマホ・タブレット用UI */
         #mobile-controls {
             position: absolute;
             bottom: 20px;
@@ -46,11 +45,21 @@
         #btn-s { left: 80px; bottom: 20px; width: 50px; height: 50px; font-size: 20px; }
         #btn-a { left: 20px; bottom: 20px; width: 50px; height: 50px; font-size: 20px; }
         #btn-d { left: 140px; bottom: 20px; width: 50px; height: 50px; font-size: 20px; }
-        /* 覗き込みボタン（画面右側に左右並べて配置） */
         #btn-q { right: 85px; bottom: 40px; width: 55px; height: 55px; font-size: 16px; }
         #btn-e { right: 20px; bottom: 40px; width: 55px; height: 55px; font-size: 16px; }
         
-        /* リトライ用タッチボタン */
+        /* 衝突時の赤フラッシュオーバーレイ */
+        #hit-flash {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: radial-gradient(ellipse at center,
+                rgba(255, 20, 0, 0.45) 0%,
+                rgba(160, 0, 0, 0.92) 100%);
+            opacity: 0;
+            pointer-events: none;
+            z-index: 450;
+        }
         #retry-overlay-btn {
             position: absolute;
             top: 70%;
@@ -71,6 +80,7 @@
 </head>
 <body>
 <div id="overlay"></div>
+<div id="hit-flash"></div>
 <div id="ui">
     <div id="timer-display">⏱️ TIME: 0.00s</div>
     <div id="coin-display">🪙 BONUS: 0</div>
@@ -105,14 +115,12 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
-// 照明
 const sun = new THREE.DirectionalLight(0xffffff, 1.2);
 sun.position.set(50, 50, 20);
 sun.castShadow = true;
 scene.add(sun);
 scene.add(new THREE.AmbientLight(0xffffff, 0.7));
 
-// --- 草地の地面を追加 ---
 const grassGeo = new THREE.PlaneGeometry(1000, 1000);
 const grassMat = new THREE.MeshLambertMaterial({ color: 0x7cfc00 });
 const grass = new THREE.Mesh(grassGeo, grassMat);
@@ -120,7 +128,6 @@ grass.rotation.x = -Math.PI / 2;
 grass.receiveShadow = true;
 scene.add(grass);
 
-// --- マップ構築 ---
 const createRoad = (x, z, w, d) => {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshLambertMaterial({ color: 0x333333 }));
     mesh.rotation.x = -Math.PI / 2;
@@ -132,10 +139,8 @@ createRoad(40, 0, 90, 10);
 createRoad(85, -60, 10, 130);  
 createRoad(-100, 0, 240, 10);      
 createRoad(85, 0, 40, 10);    
-// 【改良】2つ目の交差点を横切る道路を大幅に延長（東西に長く）
 createRoad(40, -60, 300, 10);  
 
-// 青いナビゲーションルート
 const createNavLine = (x, z, w, d) => {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshBasicMaterial({ color: 0x3498db }));
     mesh.rotation.x = -Math.PI / 2;
@@ -146,21 +151,17 @@ createNavLine(0, 60, 1, 120);
 createNavLine(42.5, 0, 86, 1);
 createNavLine(85, -60, 1, 120);
 
-// トンネル
 function createTunnel(x, z) {
     const tunnel = new THREE.Mesh(new THREE.BoxGeometry(12, 8, 12), new THREE.MeshLambertMaterial({color: 0x222222}));
     tunnel.position.set(x, 4, z);
     scene.add(tunnel);
 }
 createTunnel(-220, 0); createTunnel(120, 0);
-// 【改良】道路の延長に合わせて、2つ目の交差点のトンネル位置をさらに外側へ移動
 createTunnel(-110, -60); createTunnel(190, -60);
 
-// 建物（塀）
 const wallMat = new THREE.MeshLambertMaterial({ color: 0xeeeeee });
 const walls = [
     {x:-10, z:11, w:10, d:10}, {x:10, z:11, w:10, d:10},     
-    // 【改良】左に寄っても車が見えないよう、2つ目の交差点手前の塀（x:75側）を左方向へ拡張(w:14)し、位置を調整
     {x:73, z:-49, w:14, d:12}, {x:95, z:-49, w:10, d:12}
 ];
 walls.forEach(w => {
@@ -169,165 +170,120 @@ walls.forEach(w => {
     scene.add(wall);
 });
 
-// ゴール地点の立体的な("学校（校舎・校門）")オブジェクト群
-const schoolGroup = new THREE.Group();
-
-const schoolBody = new THREE.Mesh(new THREE.BoxGeometry(50, 18, 15), new THREE.MeshLambertMaterial({ color: 0xdfd3c3 }));
-schoolBody.position.set(85, 9, -145);
-schoolBody.castShadow = true;
-schoolBody.receiveShadow = true;
-schoolGroup.add(schoolBody);
-
-const schoolRoof = new THREE.Mesh(new THREE.BoxGeometry(52, 1, 17), new THREE.MeshLambertMaterial({ color: 0x555555 }));
-schoolRoof.position.set(85, 18.5, -145);
-schoolGroup.add(schoolRoof);
-
-const clockMesh = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 0.5, 24), new THREE.MeshLambertMaterial({ color: 0xffffff }));
-clockMesh.rotation.x = Math.PI / 2;
-clockMesh.position.set(85, 14, -137.3);
-schoolGroup.add(clockMesh);
-
-const gateMat = new THREE.MeshLambertMaterial({ color: 0x777777 });
-const gateL = new THREE.Mesh(new THREE.BoxGeometry(2, 5, 2), gateMat);
-gateL.position.set(80, 2.5, -122);
-const gateR = new THREE.Mesh(new THREE.BoxGeometry(2, 5, 2), gateMat);
-gateR.position.set(90, 2.5, -122);
-schoolGroup.add(gateL, gateR);
-
-scene.add(schoolGroup);
-
-// 景観用の家（ローポリ建物）with 窓・ドア
-function createHouse(x, z, color) {
-    const group = new THREE.Group();
-    // 壁
-    const body = new THREE.Mesh(new THREE.BoxGeometry(8, 6, 8), new THREE.MeshLambertMaterial({color: color}));
-    body.position.y = 3;
-    body.castShadow = true;
-    // 屋根
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(7, 4, 4), new THREE.MeshLambertMaterial({color: 0x8b4513}));
-    roof.position.y = 8; roof.rotation.y = Math.PI/4;
-    // 窓（水色）
-    const winMat = new THREE.MeshLambertMaterial({color: 0xadd8e6, emissive: 0x224455});
-    const winGeo = new THREE.PlaneGeometry(1.3, 1.3);
-    const winL = new THREE.Mesh(winGeo, winMat);
-    winL.position.set(-2, 3.8, 4.01);
-    const winR = new THREE.Mesh(winGeo, winMat);
-    winR.position.set(2, 3.8, 4.01);
-    // 窓枠（白）
-    const frameMat = new THREE.MeshLambertMaterial({color: 0xffffff});
-    const frameGeo = new THREE.PlaneGeometry(1.6, 1.6);
-    const frameL = new THREE.Mesh(frameGeo, frameMat);
-    frameL.position.set(-2, 3.8, 4.005);
-    const frameR = new THREE.Mesh(frameGeo, frameMat);
-    frameR.position.set(2, 3.8, 4.005);
-    // ドア（茶）
-    const doorMat = new THREE.MeshLambertMaterial({color: 0x6b3a1f});
-    const door = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.2), doorMat);
-    // 【修正】Zファイティング（点滅）を防ぐため、ドアを壁面(4.0)から少し手前(4.03)へ引き出しました
-    door.position.set(0, 1.6, 4.03);
-    // ドア枠（白）
-    const doorFrame = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2.5), frameMat);
-    doorFrame.position.set(0, 1.6, 4.015);
-    group.add(body, roof, frameL, frameR, winL, winR, doorFrame, door);
-    group.position.set(x, 0, z);
-    scene.add(group);
-}
-createHouse(-20, 30, 0xf39c12);
-createHouse(20, 30, 0x1abc9c);
-createHouse(-30, 80, 0xe74c3c);
-createHouse(30, 80, 0x9b59b6);
-createHouse(50, -30, 0xf1c40f);
-createHouse(110, -30, 0x34495e);
-createHouse(60, -90, 0x1abc9c);
-createHouse(110, -90, 0xe67e22);
-
-// ===== 電柱 =====
+// ==========================================
+// 【修正①】電柱システム - よりリアルに
+// ==========================================
 function createUtilityPole(x, z, rotY = 0) {
     const group = new THREE.Group();
-    const poleMat = new THREE.MeshLambertMaterial({color: 0x7a5c2e});
-    // メインポール（木製・茶色）
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.17, 11, 8), poleMat);
-    pole.position.y = 5.5;
+
+    // 木製ポール本体（茶色系）
+    const poleMat = new THREE.MeshLambertMaterial({color: 0x7a5c3a});
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.20, 13, 8), poleMat);
+    pole.position.y = 6.5;
     group.add(pole);
-    // 横腕（上）
-    const arm1 = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.18, 0.18), poleMat);
-    arm1.position.set(0, 10.2, 0);
+
+    // ポールの金属バンド（固定用）
+    const bandMat = new THREE.MeshLambertMaterial({color: 0x888888});
+    for (const bandY of [3.5, 7.0, 10.5]) {
+        const band = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.18, 8), bandMat);
+        band.position.y = bandY;
+        group.add(band);
+    }
+
+    // 上段横腕木（高圧電力線用・長め）
+    const armMat = new THREE.MeshLambertMaterial({color: 0x5c4033});
+    const arm1 = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.22, 0.22), armMat);
+    arm1.position.set(0, 12.4, 0);
     group.add(arm1);
-    // 横腕（中）
-    const arm2 = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.14, 0.14), poleMat);
-    arm2.position.set(0, 8.5, 0);
+
+    // 下段横腕木（低圧・通信線用）
+    const arm2 = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.18, 0.18), armMat);
+    arm2.position.set(0, 10.5, 0);
     group.add(arm2);
-    // 碍子（がいし）- 白い絶縁体の小球
-    const insGeo = new THREE.SphereGeometry(0.12, 6, 6);
-    const insMat = new THREE.MeshLambertMaterial({color: 0xeeeeee});
-    [[-1.6, 10.2], [0, 10.2], [1.6, 10.2], [-1.1, 8.5], [1.1, 8.5]].forEach(([ix, iy]) => {
+
+    // 上段碍子（陶器製・縦型）
+    const insGeo = new THREE.CylinderGeometry(0.10, 0.13, 0.35, 8);
+    const insMat = new THREE.MeshLambertMaterial({color: 0xd4c89a}); // 磁器・淡黄色
+    for (const [ix, iy] of [[-2.3, 12.4], [-0.8, 12.4], [0.8, 12.4], [2.3, 12.4]]) {
         const ins = new THREE.Mesh(insGeo, insMat);
-        ins.position.set(ix, iy, 0.1);
+        ins.position.set(ix, iy + 0.25, 0);
         group.add(ins);
-    });
+        // 碍子の傘（フランジ）
+        const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.06, 8), insMat);
+        flange.position.set(ix, iy + 0.08, 0);
+        group.add(flange);
+    }
+
+    // 下段碍子
+    for (const [ix, iy] of [[-1.2, 10.5], [0, 10.5], [1.2, 10.5]]) {
+        const ins = new THREE.Mesh(insGeo, insMat);
+        ins.position.set(ix, iy + 0.25, 0);
+        group.add(ins);
+    }
+
+    // 変圧器（トランス）本体 - 円柱形・明るいスチールグレー
+    const transMat = new THREE.MeshLambertMaterial({color: 0x607080});
+    const transBody = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 1.4, 10), transMat);
+    transBody.position.set(0.9, 8.8, 0);
+    group.add(transBody);
+
+    // トランスの上蓋（やや明るく）
+    const transCap = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.58, 0.12, 10), 
+        new THREE.MeshLambertMaterial({color: 0x7a8a99}));
+    transCap.position.set(0.9, 9.56, 0);
+    group.add(transCap);
+
+    // トランス固定バンド
+    const transBand = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.56, 0.12, 10), bandMat);
+    transBand.position.set(0.9, 8.3, 0);
+    group.add(transBand);
+
     group.position.set(x, 0, z);
     group.rotation.y = rotY;
     scene.add(group);
     return group;
 }
 
-// 電線を2つの電柱間に張る関数
 function createWire(x1, y1, z1, x2, y2, z2) {
     const points = [];
     const segments = 10;
     for (let i = 0; i <= segments; i++) {
         const t = i / segments;
-        const sag = Math.sin(t * Math.PI) * 0.4; // 電線のたわみ
-        points.push(new THREE.Vector3(
-            x1 + (x2 - x1) * t,
-            y1 + (y2 - y1) * t - sag,
-            z1 + (z2 - z1) * t
-        ));
+        const sag = Math.sin(t * Math.PI) * 0.3;
+        points.push(new THREE.Vector3(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t - sag, z1 + (z2 - z1) * t));
     }
     const geo = new THREE.BufferGeometry().setFromPoints(points);
-    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({color: 0x333333}));
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({color: 0x222222}));
     scene.add(line);
 }
 
-// 道路沿いに電柱を配置
-// 縦の道（x≈-5 側, z方向）
-const polePositionsV = [120, 95, 70, 45, 20, -5]; // z座標
-polePositionsV.forEach(z => createUtilityPole(-6, z));
-// 電線を縦道沿いに張る（上の腕, y≈10.2）
+const polePositionsV = [115, 85, 55, 25];
+polePositionsV.forEach(z => createUtilityPole(-5.2, z));
 for (let i = 0; i < polePositionsV.length - 1; i++) {
-    createWire(-6, 10.2, polePositionsV[i], -6, 10.2, polePositionsV[i+1]);
-    createWire(-6, 8.5, polePositionsV[i], -6, 8.5, polePositionsV[i+1]);
+    createWire(-5.2, 12.4, polePositionsV[i], -5.2, 12.4, polePositionsV[i+1]);
+    createWire(-5.2, 10.5, polePositionsV[i], -5.2, 10.5, polePositionsV[i+1]);
 }
 
-// 横の道（z≈-5 側, x方向）
-const polePositionsH = [10, 28, 46, 64]; // x座標
-polePositionsH.forEach(x => createUtilityPole(x, -6, Math.PI / 2));
-for (let i = 0; i < polePositionsH.length - 1; i++) {
-    createWire(polePositionsH[i], 10.2, -6, polePositionsH[i+1], 10.2, -6);
-    createWire(polePositionsH[i], 8.5, -6, polePositionsH[i+1], 8.5, -6);
-}
-
-// 2本目の縦の道（x≈91 側）
-const polePositionsV2 = [-5, -25, -45, -70, -95, -115];
-polePositionsV2.forEach(z => createUtilityPole(91, z));
+const polePositionsV2 = [-15, -45, -75, -105];
+polePositionsV2.forEach(z => createUtilityPole(90.8, z));
 for (let i = 0; i < polePositionsV2.length - 1; i++) {
-    createWire(91, 10.2, polePositionsV2[i], 91, 10.2, polePositionsV2[i+1]);
-    createWire(91, 8.5, polePositionsV2[i], 91, 8.5, polePositionsV2[i+1]);
+    createWire(90.8, 12.4, polePositionsV2[i], 90.8, 12.4, polePositionsV2[i+1]);
+    createWire(90.8, 10.5, polePositionsV2[i], 90.8, 10.5, polePositionsV2[i+1]);
 }
 
-// 一時停止標識と白線
+// ==========================================
+// 【修正②】止まれ標識 - 目立たないよう小さく
+// ==========================================
 function createStopSignTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 256;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, 256, 256);
-    // 逆三角形（白縁）
     ctx.beginPath();
     ctx.moveTo(128, 248); ctx.lineTo(8, 14); ctx.lineTo(248, 14);
     ctx.closePath();
     ctx.strokeStyle = 'white'; ctx.lineWidth = 18; ctx.stroke();
     ctx.fillStyle = '#cc0000'; ctx.fill();
-    // 文字サイズを逆三角形の横幅に合わせ、描画Y座標を「118」から「92」へと上に引き上げて完全に収めました
     ctx.fillStyle = 'white';
     ctx.font = 'bold 54px sans-serif'; 
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -338,25 +294,23 @@ const stopSignTexture = createStopSignTexture();
 
 function createStopSign(x, z) {
     const group = new THREE.Group();
-    // ポール（金属色）
+    // ポールを短く・細く
     const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.08, 0.10, 5.5, 8),
+        new THREE.CylinderGeometry(0.04, 0.05, 3.2, 8),
         new THREE.MeshLambertMaterial({color: 0xaaaaaa})
     );
-    pole.position.y = 2.75;
+    pole.position.y = 1.6;
     group.add(pole);
-    // 標識本体（両面表示の平面 + canvasテクスチャ）
+    // 標識本体を小さく（0.65×0.65 → 目立ちにくいサイズ）
     const signMat = new THREE.MeshBasicMaterial({
         map: stopSignTexture, transparent: true, side: THREE.DoubleSide
     });
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), signMat);
-    // 食い込みを直すため、少し前に出す（z方向へオフセット）
-    sign.position.set(0, 5.6, 0.1);
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.65), signMat);
+    sign.position.set(0, 3.3, 0.05);
     group.add(sign);
     group.position.set(x, 0, z);
     scene.add(group);
 }
-// 位置を微調整して配置（修正なし、createStopSign内で対応）
 createStopSign(4.5, 16.5);          
 createStopSign(88.5, -45);          
 
@@ -369,19 +323,267 @@ const createStopLine = (x, z, w, d) => {
 createStopLine(0, 13, 8, 1.2);    
 createStopLine(85, -47, 8, 1.2);  
 
+function createRoadTextTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 128, 512);
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 95px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.save();
+    ctx.scale(1, 1.8);
+    ctx.fillText('止', 64, 70);
+    ctx.fillText('ま', 64, 150);
+    ctx.fillText('れ', 64, 230);
+    ctx.restore();
+    return new THREE.CanvasTexture(canvas);
+}
+const roadTextTexture = createRoadTextTexture();
+
+const createRoadTextMarking = (x, z, rotY = 0) => {
+    const textMat = new THREE.MeshBasicMaterial({
+        map: roadTextTexture,
+        transparent: true,
+        side: THREE.DoubleSide
+    });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 8.8), textMat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.rotation.z = rotY;
+    mesh.position.set(x, 0.06, z);
+    scene.add(mesh);
+};
+createRoadTextMarking(0, 22, 0);
+createRoadTextMarking(85, -38, 0);
+
+// ==========================================
+// 【修正④】大学 正門・校舎
+// ==========================================
+
+// 大学名縦書きサイン用テクスチャ
+function createUniversitySignTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 160;
+    canvas.height = 640;
+    const ctx = canvas.getContext('2d');
+    // 濃紺の背景
+    ctx.fillStyle = '#0c1a2e';
+    ctx.fillRect(0, 0, 160, 640);
+    // 金色の二重枠線
+    ctx.strokeStyle = '#c9a840';
+    ctx.lineWidth = 6;
+    ctx.strokeRect(7, 7, 146, 626);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(13, 13, 134, 614);
+    // 金色の縦書き文字
+    ctx.fillStyle = '#d4a830';
+    ctx.font = 'bold 68px serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const chars = ['安', '全', '大', '學'];
+    const spacing = 614 / chars.length;
+    chars.forEach((ch, i) => {
+        ctx.fillText(ch, 80, 16 + spacing * (i + 0.5));
+    });
+    return new THREE.CanvasTexture(canvas);
+}
+const uniSignTex = createUniversitySignTexture();
+
+// 煉瓦テクスチャ（学校本体用）
+function createBrickTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#9b4a35';
+    ctx.fillRect(0, 0, 256, 256);
+    ctx.fillStyle = '#8a3e2c';
+    ctx.strokeStyle = '#d4c0a0';
+    ctx.lineWidth = 1.5;
+    const brickH = 24, brickW = 64;
+    for (let row = 0; row * brickH < 256; row++) {
+        const offset = (row % 2) * (brickW / 2);
+        for (let col = -1; col * brickW < 256 + brickW; col++) {
+            const bx = col * brickW + offset;
+            const by = row * brickH;
+            ctx.fillRect(bx + 1, by + 1, brickW - 2, brickH - 2);
+            ctx.strokeRect(bx + 1, by + 1, brickW - 2, brickH - 2);
+        }
+    }
+    return new THREE.CanvasTexture(canvas);
+}
+const brickTex = createBrickTexture();
+brickTex.wrapS = brickTex.wrapT = THREE.RepeatWrapping;
+brickTex.repeat.set(6, 3);
+
+// 大学校舎グループ
+const schoolGroup = new THREE.Group();
+
+// ---- 校舎本体（大学風・白系ベージュ） ----
+const schoolBodyMat = new THREE.MeshLambertMaterial({ color: 0xdacfba });
+const schoolBody = new THREE.Mesh(new THREE.BoxGeometry(56, 20, 16), schoolBodyMat);
+schoolBody.position.set(85, 10, -148);
+schoolBody.castShadow = true;
+schoolBody.receiveShadow = true;
+schoolGroup.add(schoolBody);
+
+// 中央エントランス部（少し前に突き出して立体感）
+const entranceMat = new THREE.MeshLambertMaterial({ color: 0xc8bda8 });
+const entrance = new THREE.Mesh(new THREE.BoxGeometry(14, 22, 4), entranceMat);
+entrance.position.set(85, 11, -140);
+entrance.castShadow = true;
+schoolGroup.add(entrance);
+
+// 屋上パラペット
+const parapet = new THREE.Mesh(new THREE.BoxGeometry(58, 1.0, 17), new THREE.MeshLambertMaterial({ color: 0xb0a898 }));
+parapet.position.set(85, 20.5, -148);
+schoolGroup.add(parapet);
+
+// 時計（エントランス上部）
+const clockFace = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 0.4, 24), 
+    new THREE.MeshLambertMaterial({ color: 0xffffff }));
+clockFace.rotation.x = Math.PI / 2;
+clockFace.position.set(85, 18, -138.0);
+schoolGroup.add(clockFace);
+
+// 窓（横並び・２段）
+const winMat = new THREE.MeshLambertMaterial({color: 0x7faac8, emissive: 0x112233});
+const winPositions = [-22, -14, -6, 6, 14, 22];
+for (const wx of winPositions) {
+    // 上段窓
+    const winU = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 3.5), winMat);
+    winU.position.set(85 + wx, 14, -139.9);
+    schoolGroup.add(winU);
+    // 下段窓
+    const winL = new THREE.Mesh(new THREE.PlaneGeometry(3.5, 3.5), winMat);
+    winL.position.set(85 + wx, 7, -139.9);
+    schoolGroup.add(winL);
+}
+
+// ---- 正門（煉瓦柱＋大学名サイン）----
+// 煉瓦マテリアル（写真の赤煉瓦）
+const gateBrickMat = new THREE.MeshLambertMaterial({ map: brickTex, color: 0xc0705a });
+
+// 左柱（大きく・高く：写真の比率に合わせる）
+const gateColL = new THREE.Mesh(new THREE.BoxGeometry(2.6, 10.5, 2.6), gateBrickMat);
+gateColL.position.set(79.7, 5.25, -122);
+schoolGroup.add(gateColL);
+
+// 右柱
+const gateColR = new THREE.Mesh(new THREE.BoxGeometry(2.6, 7.5, 2.6), gateBrickMat);
+gateColR.position.set(90.3, 3.75, -122);
+schoolGroup.add(gateColR);
+
+// 左柱の笠石（頂部石）
+const capMat = new THREE.MeshLambertMaterial({ color: 0x777777 });
+const capL = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.5, 3.2), capMat);
+capL.position.set(79.7, 10.75, -122);
+schoolGroup.add(capL);
+const capR = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.5, 3.2), capMat);
+capR.position.set(90.3, 7.75, -122);
+schoolGroup.add(capR);
+
+// 大学名縦書きサインパネル（左柱の正面に貼り付け）
+const signPanelMat = new THREE.MeshBasicMaterial({ map: uniSignTex, side: THREE.FrontSide });
+const signPanel = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 9.8), signPanelMat);
+signPanel.position.set(79.7, 5.1, -120.69); // 左柱の正面(z方向)に配置
+schoolGroup.add(signPanel);
+
+scene.add(schoolGroup);
+
+// ==========================================
+// 住宅街生成システム
+// ==========================================
+function createTree(x, z) {
+    const group = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 1.5, 6), new THREE.MeshLambertMaterial({color: 0x5c4033}));
+    trunk.position.y = 0.75;
+    const leaves = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 8), new THREE.MeshLambertMaterial({color: 0x2e8b57}));
+    leaves.position.y = 2.0;
+    group.add(trunk, leaves);
+    group.position.set(x, 0, z);
+    scene.add(group);
+}
+
+function createResidentialPlot(x, z, rotY = 0, color = 0xffffff) {
+    const plotGroup = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(9, 6.5, 9), new THREE.MeshLambertMaterial({color: color}));
+    body.position.y = 3.25;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(7.5, 4, 4), new THREE.MeshLambertMaterial({color: 0xaa4433}));
+    roof.position.y = 8.5; 
+    roof.rotation.y = Math.PI/4;
+    roof.castShadow = true;
+    const winMat = new THREE.MeshLambertMaterial({color: 0xadd8e6, emissive: 0x112233});
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), winMat);
+    win.position.set(2, 4, 4.51);
+    const doorMat = new THREE.MeshLambertMaterial({color: 0x5c4033});
+    const door = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2.5), doorMat);
+    door.position.set(-2, 1.25, 4.51);
+    plotGroup.add(body, roof, win, door);
+    const wallMat2 = new THREE.MeshLambertMaterial({color: 0xcccccc});
+    const wallL = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.2, 11), wallMat2);
+    wallL.position.set(-5.5, 0.6, 0);
+    const wallR = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.2, 11), wallMat2);
+    wallR.position.set(5.5, 0.6, 0);
+    const wallB = new THREE.Mesh(new THREE.BoxGeometry(11.4, 1.2, 0.4), wallMat2);
+    wallB.position.set(0, 0.6, -5.5);
+    plotGroup.add(wallL, wallR, wallB);
+    plotGroup.rotation.y = rotY;
+    plotGroup.position.set(x, 0, z);
+    scene.add(plotGroup);
+    const cos = Math.cos(rotY);
+    const sin = Math.sin(rotY);
+    createTree(x + (4 * sin + 4 * cos), z + (4 * cos - 4 * sin));
+}
+
+const houseColors = [0xf5f5f5, 0xeae6df, 0xddcbbb, 0xdfd3c3, 0xd2b48c, 0xf0e68c, 0xb0c4de];
+
+for (let z = 110; z >= 15; z -= 14) {
+    const color = houseColors[Math.floor(Math.random() * houseColors.length)];
+    createResidentialPlot(-11, z, Math.PI / 2, color);
+}
+for (let z = 110; z >= 25; z -= 14) {
+    const color = houseColors[Math.floor(Math.random() * houseColors.length)];
+    createResidentialPlot(11, z, -Math.PI / 2, color);
+}
+for (let x = 12; x <= 72; x -= -14) {
+    const color = houseColors[Math.floor(Math.random() * houseColors.length)];
+    createResidentialPlot(x, 11, 0, color);
+}
+for (let x = 15; x <= 60; x -= -14) {
+    const color = houseColors[Math.floor(Math.random() * houseColors.length)];
+    createResidentialPlot(x, -11, Math.PI, color);
+}
+
+// ==========================================
+// 【修正③】エリアE・F：交差点塀との重複を解消
+// スキップ範囲を拡大（z > -27 || z < -70）
+// ==========================================
+for (let z = -15; z >= -115; z -= 14) {
+    if (z > -27 || z < -70) {
+        const color = houseColors[Math.floor(Math.random() * houseColors.length)];
+        createResidentialPlot(74, z, Math.PI / 2, color);
+    }
+}
+for (let z = -15; z >= -115; z -= 14) {
+    if (z > -27 || z < -70) {
+        const color = houseColors[Math.floor(Math.random() * houseColors.length)];
+        createResidentialPlot(96, z, -Math.PI / 2, color);
+    }
+}
+
 // ハンドルの作成
 const handleGroup = new THREE.Group();
 const handleBar = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 12), new THREE.MeshLambertMaterial({color: 0xeeeeee}));
 handleBar.rotation.z = Math.PI/2;
 handleGroup.add(handleBar);
-
 const gripL = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.25, 12), new THREE.MeshLambertMaterial({color: 0x111111}));
 gripL.position.set(-0.55, 0, 0.05); gripL.rotation.x = Math.PI/2;
 handleGroup.add(gripL);
-
 const gripR = gripL.clone(); gripR.position.set(0.55, 0, 0.05);
 handleGroup.add(gripR);
-
 handleGroup.position.set(0, -0.4, -0.6);
 camera.add(handleGroup);
 scene.add(camera);
@@ -399,7 +601,6 @@ window.onkeydown = (e) => {
 };
 window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
 
-// スマホ・タブレット用のタッチ判定と仮想ボタン設定
 function detectTouchDevice() {
     if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
         document.getElementById('mobile-controls').style.display = 'block';
@@ -427,22 +628,17 @@ document.getElementById('retry-overlay-btn').addEventListener('click', () => {
     if (isGameOver) resetGame();
 });
 
-// 車の作成（マテリアルを後から操作できるよう透過対応を設定）
 function createRealisticCar(colorHex) {
     const carGroup = new THREE.Group();
-    
-    // 透明度制御用にメッシュ毎に透過設定を有効化
     const bodyMat = new THREE.MeshLambertMaterial({color: colorHex, transparent: true, opacity: 1.0});
     const body = new THREE.Mesh(new THREE.BoxGeometry(4, 1.2, 8), bodyMat);
     body.position.y = 0.8;
     carGroup.add(body);
-
     const roofMat = new THREE.MeshLambertMaterial({color: 0xffffff, transparent: true, opacity: 1.0});
     const roof = new THREE.Mesh(new THREE.BoxGeometry(3.5, 1, 4), roofMat);
     roof.position.y = 1.9;
     roof.position.z = -0.5;
     carGroup.add(roof);
-
     const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.5, 12);
     const wheelMat = new THREE.MeshLambertMaterial({color: 0x333333, transparent: true, opacity: 1.0});
     const wheelPositions = [[2,0.4,2.5], [-2,0.4,2.5], [2,0.4,-2.5], [-2,0.4,-2.5]];
@@ -452,12 +648,10 @@ function createRealisticCar(colorHex) {
         w.position.set(p[0], p[1], p[2]);
         carGroup.add(w);
     });
-
     const lightMat = new THREE.MeshLambertMaterial({color: 0xffffaa, transparent: true, opacity: 1.0});
     const light = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.3, 0.2), lightMat);
     light.position.set(0, 0.8, 4);
     carGroup.add(light);
-
     return carGroup;
 }
 
@@ -469,11 +663,11 @@ let carX1 = -220;
 let carX2 = 98; 
 let car2Triggered = false; 
 let hasCheckedRight = false; 
-// 【追加フラグ】車2の出現/ワープシステム用
 let car2Warped = false; 
 let car2Visible = false;
+// 衝突演出用：シェイク基準カメラ座標
+let shakeBaseX = 0, shakeBaseY = 1.8, shakeBaseZ = 0;
 
-// 車の透明度を切り替える便利関数
 function setCarVisibility(carGroup, visible) {
     carGroup.traverse((child) => {
         if (child.isMesh) {
@@ -482,26 +676,21 @@ function setCarVisibility(carGroup, visible) {
     });
 }
 
-// 初期状態は車2を透明にする
 setCarVisibility(car2, false);
 
-// ゲーム状態リセット処理
 function resetGame() {
     isGameOver = false;
     coins = 0;
     startTime = Date.now();
     elapsedTime = 0;
-    
     player.x = 0;
     player.z = 120;
     player.angle = 0;
     player.speed = 0;
     player.lineState = [0, 0];
-    
     lookAngle = 0;
     leanZ = 0;
     leanX = 0;
-    
     carX1 = -220; 
     carX2 = 98; 
     car2Triggered = false; 
@@ -509,20 +698,68 @@ function resetGame() {
     car2Warped = false;
     car2Visible = false;
     setCarVisibility(car2, false);
-    
     document.getElementById('overlay').style.display = 'none';
-    
+    // フラッシュ即リセット
+    const flash = document.getElementById('hit-flash');
+    flash.style.transition = 'none';
+    flash.style.opacity = '0';
     const msg = document.getElementById('msg');
     msg.style.display = 'none';
     msg.className = ''; 
-    
-    // 【修正】リトライ時に「もう一度挑戦する」ボタンが消えるよう、ここを正しく修正しました
     document.getElementById('retry-overlay-btn').style.display = 'none';
     document.getElementById('coin-display').innerText = `🪙 BONUS: 0`;
-    
     handleGroup.rotation.z = 0;
-    
     requestAnimationFrame(update);
+}
+
+// ==========================================
+// 衝突演出：赤フラッシュ＋カメラシェイク
+// ==========================================
+function startCollisionEffect(text) {
+    // --- 1) 画面を赤くフラッシュ ---
+    const flash = document.getElementById('hit-flash');
+    flash.style.transition = 'none';
+    flash.style.opacity = '1';
+    // 0.15秒後にゆっくりフェードアウト開始
+    setTimeout(() => {
+        flash.style.transition = 'opacity 1.6s ease-out';
+        flash.style.opacity = '0';
+    }, 150);
+
+    // --- 2) カメラシェイク（独自rAFループ） ---
+    // 衝突瞬間のカメラ位置を基準として保存
+    shakeBaseX = camera.position.x;
+    shakeBaseY = camera.position.y;
+    shakeBaseZ = camera.position.z;
+    const baseRotY = camera.rotation.y;
+
+    let magnitude = 0.60;   // 初期振幅
+    const decay     = 0.84; // 減衰率（大きいほど長く揺れる）
+
+    const shakeLoop = () => {
+        magnitude *= decay;
+        // XZ方向に大きく、Y方向に小さく揺らす
+        camera.position.set(
+            shakeBaseX + (Math.random() - 0.5) * magnitude * 2.2,
+            shakeBaseY + (Math.random() - 0.5) * magnitude * 0.5,
+            shakeBaseZ + (Math.random() - 0.5) * magnitude * 2.2
+        );
+        // 向きも少し揺らす（首ブレ感）
+        camera.rotation.y = baseRotY + (Math.random() - 0.5) * magnitude * 0.25;
+
+        renderer.render(scene, camera);
+
+        if (magnitude > 0.006) {
+            requestAnimationFrame(shakeLoop);
+        } else {
+            // シェイク完了 → カメラを元に戻してゲームオーバー画面を表示
+            camera.position.set(shakeBaseX, shakeBaseY, shakeBaseZ);
+            camera.rotation.y = baseRotY;
+            renderer.render(scene, camera);
+            triggerEnd(text, false);
+        }
+    };
+    requestAnimationFrame(shakeLoop);
 }
 
 function update() {
@@ -531,9 +768,8 @@ function update() {
     elapsedTime = (Date.now() - startTime) / 1000;
     document.getElementById('timer-display').innerText = `⏱️ TIME: ${elapsedTime.toFixed(2)}s`;
 
-    // 操作
     if (keys['w']) player.speed = Math.min(player.speed + 0.005, 0.25); 
-    else if (keys['s']) player.speed = Math.max(player.speed - 0.02, 0); // バックせず強力に減速（0未満にはならない）
+    else if (keys['s']) player.speed = Math.max(player.speed - 0.02, 0);
     else player.speed *= 0.96;
     
     let targetRot = 0;
@@ -550,7 +786,6 @@ function update() {
     if (nextX > 80 && nextX < 90 && nextZ <= 5 && nextZ >= -130) onRoad = true;   
     if (onRoad) { player.x = nextX; player.z = nextZ; }
 
-    // 覗き込み計算と交差点前のEキーワープ処理
     let targetLookAngle = 0, targetLeanX = 0, targetLeanZ = 0;
     let isHeadingEast = (player.z > -10 && player.z < 10 && player.x > 5);
 
@@ -561,17 +796,14 @@ function update() {
         targetLookAngle = -Math.PI / 2;
         if (isHeadingEast) targetLeanX = 4.0; else targetLeanZ = -4.0;
         
-        // 2つ目の交差点手前のゾーン
         if (player.x > 70 && player.x < 95 && player.z > -55 && player.z < -30) {
             hasCheckedRight = true;
-            
-            // 【新機能】交差点に入る前にEキーを押したら、車をはるか遠くにワープさせて出現させる
             if (!car2Triggered && !car2Warped) {
                 car2Warped = true;
                 car2Triggered = true;
                 car2Visible = true;
                 setCarVisibility(car2, true);
-                carX2 = 180; // 延長された道路のはるか遠く（東側）から走らせる
+                carX2 = 180;
             }
         }
     }
@@ -583,34 +815,29 @@ function update() {
     camera.position.set(player.x + leanX, 1.8, player.z + leanZ);
     camera.rotation.y = player.angle + lookAngle;
 
-    // 車1（1つ目の交差点）
     carX1 += 0.25; 
     if (carX1 > 120) carX1 = -220; 
     car1.position.set(carX1, 0, 0); car1.rotation.y = Math.PI/2; 
     
-    // 車2（2つ目の交差点：ワープ・出現・タイミング制御AI）
     const nearSecondIntersection = (player.x > 70 && player.x < 95 && player.z > -65 && player.z < -30);
 
     if (nearSecondIntersection) {
-        // ワープが起きておらず、交差点の危険エリア（Z < -55）に入り込んだ場合
         if (!car2Warped && player.z < -55) {
             car2Triggered = true;
             car2Visible = true;
-            setCarVisibility(car2, true); // 透明解除して突っ込ませる
+            setCarVisibility(car2, true);
         }
     }
 
     if (car2Triggered) {
-        // ワープ経由なら少し速めに接近、通常進入なら元の絶妙なタイミング用の速度
         carX2 -= car2Warped ? 1.5 : 1.0; 
     } else {
         if (!car2Warped) {
-            carX2 = 98; // 元の絶妙な突撃待機位置
+            carX2 = 98;
         }
     }
     car2.position.set(carX2, 0, -60); car2.rotation.y = -Math.PI/2;
 
-    // 一時停止チェック
     const checkZones = [
         { active: (player.x < 10), zLine: 13, pPos: player.z, triggerPass: (player.z < 10) },
         { active: (player.x > 70), zLine: -47, pPos: player.z, triggerPass: (player.z < -50) }
@@ -619,13 +846,11 @@ function update() {
     checkZones.forEach((zone, i) => {
         if (!zone.active) return;
         const inStopZone = (zone.pPos > zone.zLine - 2 && zone.pPos < zone.zLine + 5);
-        
         if (inStopZone && Math.abs(player.speed) < 0.005 && player.lineState[i] === 0) {
             player.lineState[i] = 1; 
             coins += 200; 
             document.getElementById('coin-display').innerText = `🪙 BONUS: ${coins}`;
         }
-        
         if (zone.triggerPass && player.lineState[i] !== 2) {
             if (player.lineState[i] === 0) {
                 triggerEnd("GAME OVER<br><span style='font-size:18px;'>一時停止（速度0）をせずに交差点に進入しました！</span>", false);
@@ -634,25 +859,26 @@ function update() {
         }
     });
 
-    // 衝突判定（車2が透明状態のときは衝突しない）
     const bikePos = new THREE.Vector3(player.x, 1, player.z);
-    
     let hitCar1 = bikePos.distanceTo(new THREE.Vector3(car1.position.x, 1, car1.position.z)) < 4.5;
     let hitCar2 = car2Visible && bikePos.distanceTo(new THREE.Vector3(car2.position.x, 1, car2.position.z)) < 4.5;
 
     if (hitCar1 || hitCar2) {
+        isGameOver = true; // mainループをここで止める
+        let accidentText;
         if (player.x > 70) {
             if (!hasCheckedRight) {
-                triggerEnd("ACCIDENT<br><span style='font-size:18px;'>形だけ止まっても意味がありません！<br>Eボタンで右側の安全を確認するまで進んではいけません。</span>", false);
+                accidentText = "ACCIDENT<br><span style='font-size:18px;'>形だけ止まっても意味がありません！<br>Eボタンで右側の安全を確認するまで進んではいけません。</span>";
             } else {
-                triggerEnd("ACCIDENT<br><span style='font-size:18px;'>車の直前に飛び出してしまいました！<br>安全を確認した後は車が通り過ぎるのを待ちましょう。</span>", false);
+                accidentText = "ACCIDENT<br><span style='font-size:18px;'>車の直前に飛び出してしまいました！<br>安全を確認した後は車が通り過ぎるのを待ちましょう。</span>";
             }
         } else {
-            triggerEnd("ACCIDENT<br><span style='font-size:18px;'>交差点の確認を怠りました。</span>", false);
+            accidentText = "ACCIDENT<br><span style='font-size:18px;'>交差点の確認を怠りました。</span>";
         }
+        startCollisionEffect(accidentText);
+        return; // このフレームの残り処理をスキップ
     }
 
-    // ゴール判定
     if (player.z < -115 && player.x > 75) {
         let finalTime = Math.max(0, elapsedTime - (coins / 100));
         triggerEnd("🎉 GOAL!<br>学校に到着しました！<br>記録: " + elapsedTime.toFixed(2) + "秒<br><span style='font-size:20px;'>安全ボーナス適用後: " + finalTime.toFixed(2) + "秒</span>", true);
