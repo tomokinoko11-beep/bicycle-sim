@@ -76,11 +76,100 @@
             z-index: 1001;
             cursor: pointer;
         }
+        /* ===== スタート画面 ===== */
+        #start-screen {
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background: linear-gradient(160deg, rgba(4,16,38,0.94) 0%, rgba(8,28,18,0.94) 100%);
+            z-index: 900;
+            display: flex; align-items: center; justify-content: center;
+            font-family: sans-serif;
+            color: #fff;
+        }
+        .key-cap {
+            width: 44px; height: 44px;
+            background: linear-gradient(180deg, #f5f5f5 0%, #c0c0c0 100%);
+            border: 2px solid #888; border-bottom: 5px solid #444;
+            border-radius: 7px;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 17px; font-weight: bold; color: #222;
+            box-shadow: 0 3px 7px rgba(0,0,0,0.55);
+            margin: 2px;
+        }
+        @keyframes startBlink {
+            0%,100%{ opacity:1; } 50%{ opacity:0.3; }
+        }
     </style>
 </head>
 <body>
 <div id="overlay"></div>
 <div id="hit-flash"></div>
+
+<!-- ===== スタート画面 ===== -->
+<div id="start-screen">
+  <div style="max-width:460px; width:90%; text-align:center; padding:28px 24px;">
+
+    <div style="font-size:50px; margin-bottom:6px;">🚲</div>
+    <h2 style="margin:0 0 3px; font-size:21px; letter-spacing:1px;">自転車安全シミュレーション</h2>
+  
+    <!-- ===== PC用（キーボード）操作説明 ===== -->
+    <div id="ss-pc">
+      <div style="margin-bottom:10px;">
+        <div style="display:flex; justify-content:center;">
+          <div class="key-cap">W</div>
+        </div>
+        <div style="display:flex; justify-content:center; margin-top:2px;">
+          <div class="key-cap">A</div>
+          <div class="key-cap">S</div>
+          <div class="key-cap">D</div>
+        </div>
+      </div>
+      <div style="font-size:13px; color:#ccc; margin-bottom:20px; line-height:1.8;">
+        <b style="color:#fff;">W</b> 前進 &nbsp;／&nbsp;
+        <b style="color:#fff;">S</b> ブレーキ &nbsp;／&nbsp;
+        <b style="color:#fff;">A / D</b> 左右旋回
+      </div>
+      <div style="margin-bottom:22px; background:rgba(255,255,255,0.06);
+                  border:1px solid rgba(255,255,255,0.12); border-radius:8px;
+                  padding:8px 14px; font-size:12px; color:rgba(255,255,255,0.50);
+                  text-align:center; line-height:1.7;">
+        <span style="letter-spacing:1px;">🔍 ヒント：</span>
+        <span class="key-cap" style="width:28px;height:28px;font-size:13px;display:inline-flex;vertical-align:middle;">Q</span>
+        <span class="key-cap" style="width:28px;height:28px;font-size:13px;display:inline-flex;vertical-align:middle;">E</span>
+        で左右を見渡せる
+      </div>
+    </div>
+
+    <!-- ===== スマホ用操作説明（PCでは非表示） ===== -->
+    <div id="ss-mobile" style="display:none; margin-bottom:22px;">
+      <div style="font-size:13px; color:#ccc; margin-bottom:14px; line-height:1.9;">
+        画面左下のボタンで操作できます
+      </div>
+      <div style="display:flex; justify-content:center; gap:16px; flex-wrap:wrap;
+                  font-size:13px; color:#e0e0e0; margin-bottom:4px;">
+        <span>🔼 <b style="color:#fff;">前進</b></span>
+        <span>🔽 <b style="color:#fff;">ブレーキ</b></span>
+        <span>◀ <b style="color:#fff;">左旋回</b></span>
+        <span>▶ <b style="color:#fff;">右旋回</b></span>
+      </div>
+    </div>
+
+    <!-- ミッション説明（共通） -->
+    <div style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15);
+                border-radius:10px; padding:13px 18px; margin-bottom:26px;
+                font-size:13px; color:#e8e8e8; text-align:left; line-height:2.0;">
+      🔵 青いラインに沿って進もう<br>
+      🛑 交差点では必ず <b style="color:#f5c542;">一時停止（速度ゼロ）</b>！<br>
+      🏫 安全に <b style="color:#f5c542;">安全大学</b> へ到着しよう
+    </div>
+
+    <!-- スタートの促し -->
+    <div style="font-size:15px; color:#f0e060; letter-spacing:2px;
+                animation: startBlink 1.3s ease-in-out infinite;">
+      ── どれかキー / 画面タップでスタート ──
+    </div>
+
+  </div>
+</div>
 <div id="ui">
     <div id="timer-display">⏱️ TIME: 0.00s</div>
     <div id="coin-display">🪙 BONUS: 0</div>
@@ -358,7 +447,7 @@ createRoadTextMarking(0, 22, 0);
 createRoadTextMarking(85, -38, 0);
 
 // ==========================================
-// 【修正④】大学 正門・校舎
+// 【修正④】安全大学 正門・校舎
 // ==========================================
 
 // 大学名縦書きサイン用テクスチャ
@@ -591,8 +680,20 @@ scene.add(camera);
 let player = { x: 0, z: 120, angle: 0, speed: 0, lineState: [0, 0] }; 
 let lookAngle = 0, leanZ = 0, leanX = 0;
 
+// スタート画面制御
+let gameStarted = false;
+function startGame() {
+    if (gameStarted) return;
+    gameStarted = true;
+    startTime = Date.now(); // ここからタイマー開始
+    document.getElementById('start-screen').style.display = 'none';
+}
+// 画面タップでもスタート
+document.getElementById('start-screen').addEventListener('pointerdown', startGame);
+
 const keys = {};
 window.onkeydown = (e) => {
+    if (!gameStarted) { startGame(); return; }
     const key = e.key.toLowerCase();
     keys[key] = true;
     if (isGameOver && key === 'r') {
@@ -605,6 +706,9 @@ function detectTouchDevice() {
     if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
         document.getElementById('mobile-controls').style.display = 'block';
         document.getElementById('pc-retry-hint').innerText = '(画面ボタンでリトライ)';
+        // スタート画面：PC用を隠してスマホ用を表示
+        document.getElementById('ss-pc').style.display = 'none';
+        document.getElementById('ss-mobile').style.display = 'block';
     }
 }
 detectTouchDevice();
@@ -765,6 +869,13 @@ function startCollisionEffect(text) {
 function update() {
     if (isGameOver) return;
 
+    // スタート前はシーンだけ描画してループ待機
+    if (!gameStarted) {
+        renderer.render(scene, camera);
+        requestAnimationFrame(update);
+        return;
+    }
+
     elapsedTime = (Date.now() - startTime) / 1000;
     document.getElementById('timer-display').innerText = `⏱️ TIME: ${elapsedTime.toFixed(2)}s`;
 
@@ -845,7 +956,7 @@ function update() {
 
     checkZones.forEach((zone, i) => {
         if (!zone.active) return;
-        const inStopZone = (zone.pPos > zone.zLine - 2 && zone.pPos < zone.zLine + 5);
+        const inStopZone = (zone.pPos > zone.zLine - 6 && zone.pPos < zone.zLine + 10);
         if (inStopZone && Math.abs(player.speed) < 0.005 && player.lineState[i] === 0) {
             player.lineState[i] = 1; 
             coins += 200; 
@@ -868,9 +979,9 @@ function update() {
         let accidentText;
         if (player.x > 70) {
             if (!hasCheckedRight) {
-                accidentText = "ACCIDENT<br><span style='font-size:18px;'>形だけ止まっても意味がありません！<br>Eボタンで右側の安全を確認するまで進んではいけません。</span>";
+                accidentText = "ACCIDENT<br><span style='font-size:18px;'>形だけ止まっても意味がありません！<br>Eボタンで右側の安全を確認するまで進んではいけません。</span><br><span style='font-size:22px; color:#ffe066; background:rgba(0,0,0,0.4); padding:4px 12px; border-radius:6px; display:inline-block; margin-top:8px;'>💡 交差点進入前に【 Q / E 】キーで左右を確認しよう！</span>";
             } else {
-                accidentText = "ACCIDENT<br><span style='font-size:18px;'>車の直前に飛び出してしまいました！<br>安全を確認した後は車が通り過ぎるのを待ちましょう。</span>";
+                accidentText = "ACCIDENT<br><span style='font-size:18px;'>車の直前に飛び出してしまいました！<br>安全を確認した後は車が通り過ぎるのを待ちましょう。</span><br><span style='font-size:22px; color:#ffe066; background:rgba(0,0,0,0.4); padding:4px 12px; border-radius:6px; display:inline-block; margin-top:8px;'>💡 【 Q / E 】キーで確認してから、車が過ぎるまで待とう！</span>";
             }
         } else {
             accidentText = "ACCIDENT<br><span style='font-size:18px;'>交差点の確認を怠りました。</span>";
